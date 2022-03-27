@@ -1,60 +1,131 @@
-# template-for-proposals
 
-A repository template for ECMAScript proposals.
+# Nullish-Coalescing Default Assignment
 
-## Before creating a proposal
+A proposal for using `??=` in default assignment in function arguments and destructuring.
 
-Please ensure the following:
-  1. You have read the [process document](https://tc39.github.io/process-document/)
-  1. You have reviewed the [existing proposals](https://github.com/tc39/proposals/)
-  1. You are aware that your proposal requires being a member of TC39, or locating a TC39 delegate to "champion" your proposal
+## Status
 
-## Create your proposal repo
+Champion(s): none yet
 
-Follow these steps:
-  1.  Click the green ["use this template"](https://github.com/tc39/template-for-proposals/generate) button in the repo header. (Note: Do not fork this repo in GitHub's web interface, as that will later prevent transfer into the TC39 organization)
-  1.  Go to your repo settings “Options” page, under “GitHub Pages”, and set the source to the **main branch** under the root (and click Save, if it does not autosave this setting)
-      1. check "Enforce HTTPS"
-      1. On "Options", under "Features", Ensure "Issues" is checked, and disable "Wiki", and "Projects" (unless you intend to use Projects)
-      1. Under "Merge button", check "automatically delete head branches"
-<!--
-  1.  Avoid merge conflicts with build process output files by running:
-      ```sh
-      git config --local --add merge.output.driver true
-      git config --local --add merge.output.driver true
-      ```
-  1.  Add a post-rewrite git hook to auto-rebuild the output on every commit:
-      ```sh
-      cp hooks/post-rewrite .git/hooks/post-rewrite
-      chmod +x .git/hooks/post-rewrite
-      ```
--->
-  3.  ["How to write a good explainer"][explainer] explains how to make a good first impression.
+Author(s): [@tjjfvi](https://github.com/tjjfvi)
 
-      > Each TC39 proposal should have a `README.md` file which explains the purpose
-      > of the proposal and its shape at a high level.
-      >
-      > ...
-      >
-      > The rest of this page can be used as a template ...
+Stage: -1
 
-      Your explainer can point readers to the `index.html` generated from `spec.emu`
-      via markdown like
+## Motivation
 
-      ```markdown
-      You can browse the [ecmarkup output](https://ACCOUNT.github.io/PROJECT/)
-      or browse the [source](https://github.com/ACCOUNT/PROJECT/blob/HEAD/spec.emu).
-      ```
+Many recent ECMAScript features treat `null` and `undefined` equivalently (notably nullish coalescing and optional chaining), and today one can largely adopt a style of treating them interchangably via a combination of `== null`, `??`, and `?.`. However, there is one major place today where one cannot: default values. The `pattern = defaultValue` syntax in parameters and destructuring only replaces `undefined` values with the default – `null`s will pass through unscathed.
 
-      where *ACCOUNT* and *PROJECT* are the first two path elements in your project's Github URL.
-      For example, for github.com/**tc39**/**template-for-proposals**, *ACCOUNT* is "tc39"
-      and *PROJECT* is "template-for-proposals".
+This proposal adds new syntax to remedy this – `pattern ??= defaultValue` – which is analogous to `pattern = defaultValue`, except that both `undefined` and `null` will be replaced by `defaultValue`.
+
+This is perhaps demonstrated best with a simple example:
+
+```ts
+function log(message ??= "[empty]"){
+  console.log(message)
+}
+
+log()          // logs "[empty]"
+log(null)      // logs "[empty]"
+log(undefined) // logs "[empty]"
+
+log("abc")     // logs "abc"
+```
 
 
-## Maintain your proposal repo
+> Note: Though one might prefer to only use `undefined`, some `null`s will inevitably occur, be it from standard library functions (like `RegExp.prototype.match`), external APIs (like GraphQL queries), or user code (when one is writing libraries). Thus, this approach of treating the two interchangably is still practical, even if one never writes `null` directly.
 
-  1. Make your changes to `spec.emu` (ecmarkup uses HTML syntax, but is not HTML, so I strongly suggest not naming it ".html")
-  1. Any commit that makes meaningful changes to the spec, should run `npm run build` and commit the resulting output.
-  1. Whenever you update `ecmarkup`, run `npm run build` and commit any changes that come from that dependency.
+## Use cases
 
-  [explainer]: https://github.com/tc39/how-we-work/blob/HEAD/explainer.md
+### Protecting against `null` in libraries
+
+```ts
+/* some library */
+export function calculateAwesomeness(thing, multiplierA = 4, multiplierB = 2){
+  // ...
+}
+```
+```ts
+/* someone using the library mistakenly passes null */
+
+import { calculateAwesomeness } from "some-library"
+
+// oops, this attempt to use the default will probably return NaN
+calculateAwesomeness(thisProposal, null, 2)
+```
+```ts
+/* new version of the library guards against this mistake */
+export function calculateAwesomeness(thing, _multiplierA, _multiplierB){
+  const multiplierA = _multiplierA ?? 4
+  const multiplierB = _multiplierB ?? 2
+  // ...
+}
+
+/* instead, with this proposal */
+export function calculateAwesomeness(thing, multiplierA ??= 4, _multiplierB ??= 2){
+  // ...
+}
+```
+
+### Destructuring RegExp matches
+
+```ts
+function* search(strings){
+  for(const [index, string] of strings.entries()){
+    /* some complex logic */
+    yield { string, match: regexp.exec(string) }
+  }
+}
+```
+```ts
+// Currently:
+for(const result of search(strings)){
+  const { match } = result
+  const [matchText] = match ?? [] // match might be null
+}
+```
+```ts
+// With this proposal:
+for(const result of search(strings)){
+  const { match: [matchText] ??= [] } = result
+  // ...
+}
+```
+```ts
+// Or, with this proposal:
+for(const { match: [matchText] ??= [] } of search(strings)){
+  // ...
+}
+```
+
+### Destructuring GraphQL queries
+
+Since GraphQL queries return `null` for optional properties, destructuring them would be greatly more ergonomic with `??=`:
+
+```ts
+// Currently:
+const {
+  title,
+  description: _description,
+  author: _author,
+} = await getBook()
+const description = _description ?? "[no description in database]"
+const {
+  id: authorId,
+  name: author,
+} = _author ?? {}
+```
+```ts
+// With this proposal:
+const {
+  title,
+  description ??= "[no description in database]",
+  author: {
+    id: authorId,
+    name: author,
+  } ??= {},
+} = await getBook()
+```
+
+## Implementations
+
+[coming soon]
